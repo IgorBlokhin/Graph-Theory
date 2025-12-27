@@ -8,6 +8,8 @@ The approach taken here is based on the use of Sheppard codes. Each Sheppard cod
 
 The datasets provided in this repository consist of Prüfer codes obtained through this procedure. Vertex labels are taken from the set {0, 1, ..., n−1}, and each line of a dataset corresponds to a single Prüfer code of length n−2. In this representation, each Prüfer code corresponds to a specific graceful labeling, rather than merely to an unlabeled tree.
 
+Parts of the graph-related code are based on the Diktyonphi module originally developed by Jíří Fišer for educational purposes and have been adapted and extended for the needs of this project. Original version: https://github.com/Jiri-Fiser/DiktyonPhi/blob/master/diktyonphi.py
+
 The generation procedure is algorithmic and reproducible. For a fixed number of vertices n, a prescribed subset of Sheppard codes is enumerated, converted into graphs, filtered to retain trees, and then transformed into Prüfer codes. The total numbers obtained in this way agree with known results on the number of graceful trees.
 
 This work connects graceful labelings of trees with Prüfer codes and focuses on the relationship between these two objects, which have mostly been studied separately.
