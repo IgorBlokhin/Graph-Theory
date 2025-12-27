@@ -505,7 +505,7 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
     Kód: délky n-2, hodnoty 0..n-1
     """
     if steps:
-        BASE_DIR = Path(__file__).resolve().parent / "prufer"
+        BASE_DIR = Path(__file__).resolve().parent / "prufer_steps"
         for path in BASE_DIR.glob("graph_*_step.png"):
             try:
                 os.remove(path)
@@ -580,7 +580,7 @@ def from_sheppard(code: list, steps: bool = False) -> Graph:
     Vrcholy které nebyly nalezeny doplníme.
     """
     if steps:
-        BASE_DIR = Path(__file__).resolve().parent / "sheppard"
+        BASE_DIR = Path(__file__).resolve().parent / "sheppard_steps"
         for path in BASE_DIR.glob("graph_*_step.png"):
             try:
                 os.remove(path)
