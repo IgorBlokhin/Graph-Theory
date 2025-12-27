@@ -505,7 +505,7 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
     Kód: délky n-2, hodnoty 0..n-1
     """
     if steps:
-        BASE_DIR = Path(__file__).resolve().parent / "prufer_steps"
+        BASE_DIR = Path(__file__).resolve().parent / "prufer"
         for path in BASE_DIR.glob("graph_*_step.png"):
             try:
                 os.remove(path)
@@ -580,7 +580,7 @@ def from_sheppard(code: list, steps: bool = False) -> Graph:
     Vrcholy které nebyly nalezeny doplníme.
     """
     if steps:
-        BASE_DIR = Path(__file__).resolve().parent / "sheppard_steps"
+        BASE_DIR = Path(__file__).resolve().parent / "sheppard"
         for path in BASE_DIR.glob("graph_*_step.png"):
             try:
                 os.remove(path)
@@ -788,9 +788,11 @@ def graceful_codes_from_sheppard(
     """
 
     # --- Куда писать и какое базовое имя использовать для частей ---
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    OUTPUTS_DIR = PROJECT_ROOT / "outputs"
     if output_file is None:
-        out_dir = fr"C:\Users\Igor\Desktop\Python-programs\analyza_kodu\sheppard\{n}"
-        os.makedirs(out_dir, exist_ok=True)
+        out_dir = OUTPUTS_DIR / "sheppard" / f"n={n}"
+        out_dir.mkdir(parents=True, exist_ok=True)
         if sort:
             base_name = f"graceful_sheppard_{n}_sort"
         else:
@@ -958,5 +960,5 @@ def graceful_codes_from_sheppard(
 
 
 if __name__ == "__main__":
-    # Příklad: spuštění Sheppardového průchodu pro stromy s 12 vrcholy
-    graceful_codes_from_sheppard(n=12, workers=5, output_file=50)
+    # Příklad: spuštění Sheppardového průchodu pro stromy s n vrcholy
+    graceful_codes_from_sheppard(n=11, workers=5, max_file_mb=50)
