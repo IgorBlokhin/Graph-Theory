@@ -24,7 +24,7 @@ def load_font():
     - кириллица
     - Latin Extended-A (č, ř, ě, š, ž, ů, …)
     """
-    font_path = Path(__file__).with_name("DejaVuSans.ttf")
+    font_path = Path(__file__).resolve().parent / "assets" / "font" / "DejaVuSans.ttf"
     print("Font path:", font_path)
     print("Font exists:", font_path.exists())
 
