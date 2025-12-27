@@ -10,7 +10,7 @@ The datasets provided in this repository consist of Prüfer codes obtained throu
 
 The generation procedure is algorithmic and reproducible. For a fixed number of vertices n, a prescribed subset of Sheppard codes is enumerated, converted into graphs, filtered to retain trees, and then transformed into Prüfer codes. The total numbers obtained in this way agree with known results on the number of graceful trees.
 
-The purpose of providing explicit Prüfer codes is to make individual graceful labelings available in a concrete and standard representation. This allows graceful labelings to be handled in the same way as general labeled trees in Prüfer space, using familiar combinatorial and computational tools.
+This work connects graceful labelings of trees with Prüfer codes and focuses on the relationship between these two objects, which have mostly been studied separately.
 
 This repository is part of a bachelor's thesis and is released to support reproducibility and further examination of graceful labelings in Prüfer representation.
 
