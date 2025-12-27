@@ -38,7 +38,7 @@ pro dané n.
 - v seřazených souborech je na začátku řádku uvedeno pořadí kódu  
 - jeden Prüferův kód na řádek  
 - celá čísla oddělená mezerami  
-- označení vrcholů je z množiny {0,1,...,n-1}
+- označení vrcholů jsou z množiny {0,1,...,n-1}
 - délka kódu je n-2
 
 Každý řádek reprezentuje konkrétní graciózní ohodnocení stromu.
