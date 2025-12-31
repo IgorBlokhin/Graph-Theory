@@ -10,7 +10,7 @@ The datasets provided in this repository consist of Prüfer codes obtained throu
 
 Parts of the graph-related code are based on the Diktyonphi module originally developed by Jíří Fišer for educational purposes and have been adapted and extended for the needs of this project. Original version: https://github.com/Jiri-Fiser/DiktyonPhi/blob/master/diktyonphi.py
 
-The generation procedure is algorithmic and reproducible. For a fixed number of vertices n, a prescribed subset of Sheppard codes is enumerated, converted into graphs, filtered to retain trees, and then transformed into Prüfer codes. The total numbers obtained in this way agree with known results on the number of graceful trees.
+The generation procedure is algorithmic and reproducible. For a fixed number of vertices n, a prescribed subset of Sheppard codes is enumerated, converted into graphs, filtered to retain trees, and then transformed into Prüfer codes. The total numbers obtained in this way agree with known results on the number of graceful labelings of trees with n vertices.
 
 This work connects graceful labelings of trees with Prüfer codes and focuses on the relationship between these two objects, which have mostly been studied separately.
 
