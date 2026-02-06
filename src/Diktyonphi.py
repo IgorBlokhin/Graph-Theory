@@ -5,6 +5,7 @@ from itertools import islice
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from invert_color import invert
+from paths import app_dir, project_root, data_dir, outputs_dir, steps_dir
 
 class GraphType(enum.Enum):
     """Typ orientace grafu: orientovaný nebo neorientovaný."""
@@ -130,7 +131,7 @@ class Graph:
         """
         self.type = type
         self._nodes: Dict[Hashable, Node] = {}
-        self._edges: List[Tuple] = []
+        self._edges: Dict[Hashable, Edge] = {}
 
     def add_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> Node:
         """
@@ -171,7 +172,7 @@ class Graph:
         self._set_edge(src_id, dst_id, attrs)
         if self.type == GraphType.UNDIRECTED:
             self._set_edge(dst_id, src_id, attrs)
-        self._edges.append((self.node(src_id).id, self.node(dst_id).id))
+        self._edges[(src_id, dst_id)] = attrs
         return (self._nodes[src_id], self._nodes[dst_id])
 
     def __contains__(self, node_id: Hashable) -> bool:
@@ -199,6 +200,9 @@ class Graph:
         :raises KeyError: Pokud vrchol neexistuje.
         """
         return self._nodes[node_id]
+    
+    def edge(self, ids: Tuple[int, int]) -> Edge:
+        return self._edges[ids]
 
     def _create_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> Node:
         """Interní metoda pro vytvoření vrcholu."""
@@ -214,9 +218,8 @@ class Graph:
 
     def del_node(self, node_id) -> None:
         """Odstraní vrchol a všechny hrany, které na něj vedou."""
-        for neighbor_id in self._nodes:
-            if node_id in self.node(neighbor_id)._neighbors:
-                self.node(neighbor_id)._neighbors.pop(node_id)
+        for neighbor_id in self.node(node_id).neighbor_ids:
+            self.node(neighbor_id)._neighbors.pop(node_id)
         self._nodes.pop(node_id)
 
     def del_edge(self, node_id_1, node_id_2) -> None:
@@ -299,9 +302,9 @@ class Graph:
             node [
                 fontsize=10,
                 fontname="Helvetica-Bold",
-                penwidth=1
-                width=0.5
-                height=0.35
+                penwidth=1,
+                width=0.2,
+                height=0.15
             ];
             edge [penwidth=1];
         """)
@@ -328,20 +331,27 @@ class Graph:
         lines.append("}")
         return "\n".join(lines)
 
-    def export_to_png(self, image_name: str | None = "graph.png", code_type: str | None = None, dark: bool = False) -> str:
+    def export_to_png(
+        self,
+        image_name: str | None = "graph.png",
+        code_type: str | None = None,
+        dark: bool = False
+    ) -> str:
         """
         Экспортирует граф в PNG и возвращает полный путь к файлу.
-        Если filename не задан, сохраняет в 'graph.png' рядом с модулем.
+
+        ВАЖНО:
+        - всегда пишет в outputs/... (рядом с exe/py)
+        - никогда не пишет рядом с модулем (в exe это может быть недоступно)
         """
-        base_dir = Path(__file__).resolve().parent  # папка, где лежит модуль с графом
-        try:
-            (base_dir / code_type).mkdir()
-        except FileExistsError:
-            pass
-        filename = base_dir / code_type
-        filename = filename / image_name
+        if code_type is None:
+            code_type = "graphs"
+
+        out_dir = steps_dir(code_type)  # outputs/<code_type>/
+        filename = out_dir / (image_name or "graph.png")
 
         dot_data = self.to_dot()
+
         try:
             subprocess.run(
                 ["dot", "-Tpng", "-o", str(filename)],
@@ -353,10 +363,9 @@ class Graph:
             raise RuntimeError(f"Graphviz 'dot' selhal: {e}") from e
 
         if dark is True:
-            invert(str(Path(filename)), filename)
+            invert(str(filename), str(filename))
 
-        return str(Path(filename))
-
+        return str(filename)
 
     def _repr_svg_(self):
         """
@@ -424,27 +433,47 @@ class Graph:
             return False
         return True
 
-    def to_prufer(self):
+    def to_prufer(self, steps: bool = False):
         """
         Převede strom na Prüferův kód pomocí standardního algoritmu:
         - opakovaně hledá nejmenší list
         - odstraní list
         - zapíše jeho souseda do kódu
+        - opakuje se, dokud nez;stalu dva vrcholy
         """
+        if self.is_tree() is False:
+            return
+        
         code = []
         heap_listy = []
         tree = self.copy()
+
+        if steps:
+            base = steps_dir("prufer")
+            # чистим старые step картинки
+            for path in base.glob("to_code_*_step.png"):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
 
         # Najdeme všechny listy
         for node in tree._nodes:
             if tree.node(node).out_degree == 1:
                 heapq.heappush(heap_listy, tree._nodes[node].id)
 
+        step = 1
         # Opakujeme, dokud nezůstanou 2 vrcholy
         while len(tree._nodes) > 2:
             minimal_id = heapq.heappop(heap_listy)
             neighbor = list(tree.node(minimal_id).neighbor_nodes)[0].id
             code.append(neighbor)
+            if steps:
+                tree.node(minimal_id)._attrs["fillcolor"] = "#ff0000"
+                tree.node(neighbor)._attrs["fillcolor"] = "#0000ff"
+                tree.export_to_png(f"to_code_{step}_step.png", code_type="prufer", dark=True)
+                tree.node(neighbor)._attrs["fillcolor"] = "#ffffff"
+                step += 1
             tree.del_node(minimal_id)
 
             if tree.node(neighbor).out_degree == 1:
@@ -453,6 +482,7 @@ class Graph:
         return code
     
     def is_graceful(self):
+        """Testuje zda ohodnocení grafu je graciózní"""
         set_of_differencies = set()
         for edge in self._edges:
             difference = abs(edge[1] - edge[0])
@@ -462,19 +492,74 @@ class Graph:
         edges = len(self._edges)
         return set_of_differencies == set(range(1, edges + 1))
     
+    def to_sheppard(self, steps: bool = False):
+        """
+        Převede graciózní ohodnocený graf na sheppardův kód pomoci algoritmu:
+        - hledá se hrana s minimálním ohodnocením
+        - menší z její vrcholu se zapisuje do kódu
+        - hrana se odstraňuje
+        - opakuje se, dokud nebudou odstraněny všechny hrany
+        """
+        if self.is_graceful() is False:
+            return
+        
+        graph = self.copy()
+        if steps:
+            base = steps_dir("sheppard")
+            # чистим старые step картинки
+            for path in base.glob("to_code_*_step.png"):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+
+        edge_value = 1
+        code = []
+        while len(code) != len(self._edges):
+            for edge in self._edges:
+                if abs(edge[1] - edge[0]) == edge_value:
+                    code.append(min(edge[1], edge[0]))
+                    if steps:
+                        graph.node(min(edge[0], edge[1]))._attrs["fillcolor"] = "#0000ff"
+                        graph.node(max(edge[0], edge[1]))._attrs["fillcolor"] = "#ff0000"
+                        graph.export_to_png(f"to_code_{edge_value}_step.png", code_type="sheppard", dark=True)
+                        graph.del_edge(edge[0], edge[1])
+                        graph.node(min(edge[0], edge[1]))._attrs["fillcolor"] = "#ffffff"
+                        graph.node(max(edge[0], edge[1]))._attrs["fillcolor"] = "#ffffff"
+            edge_value += 1
+
+        return code
+    
     def involute(self):
         """
         Inverzní transformace (involuce) vrcholů grafu:
-        - transformuje vrcholy podle mapy vrchol → (max_vrchol - vrchol + 1)
+        - transformuje vrcholy podle mapy vrchol → (max_vrchol - vrchol)
         """
         new_graph = Graph(self.type)
-        max_vrchol = max(self._nodes)  # это будет n-1
+        max_vrchol = max(self._nodes)
         for u, v in self._edges:
             u2, v2 = max_vrchol - u, max_vrchol - v
             new_graph.add_edge(u2, v2)
         return new_graph
+    
+    def canonical_code(self, node_id, parent_id=None):
+        # дети = все соседи, кроме родителя (если родитель задан)
+        children = [nid for nid in self.node(node_id).neighbor_ids
+                    if parent_id is None or nid != parent_id]
 
+        # лист (относительно parent_id)
+        if not children:
+            return "01"
 
+        # получить коды всех поддеревьев детей
+        codes = [self.canonical_code(child, node_id) for child in children]
+
+        # каноничность: сортируем коды детей
+        codes.sort()
+
+        # собрать и вернуть код текущей вершины
+        return "0" + "".join(codes) + "1"
+                
 def all_sheppard_codes(n):
     """
     Generátor „první poloviny“ Sheppardových kódů pro dané n.
@@ -489,7 +574,7 @@ def all_sheppard_codes(n):
         total *= L
         ranges.append(range(0, L))  # 0..L-1
 
-    limit = total // 2
+    limit = int(total / 2)
     count = 0
 
     for code in prod(*ranges):
@@ -504,30 +589,29 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
     Vršoly: 0..n-1, kde n = len(code) + 2
     Kód: délky n-2, hodnoty 0..n-1
     """
-    if steps:
-        BASE_DIR = Path(__file__).resolve().parent / "prufer"
-        for path in BASE_DIR.glob("graph_*_step.png"):
-            try:
-                os.remove(path)
-            except FileNotFoundError:
-                pass
-        try:
-            os.remove("final_graph.png")
-        except FileNotFoundError:
-            pass
-
     code = [int(x) for x in code]
     n = len(code) + 2
 
+    # быстрые проверки диапазона
+    if any(x < 0 or x > n - 1 for x in code):
+        raise ValueError(f"Invalid Prüfer code")
+
+    if steps:
+        base = steps_dir("prufer")
+        # чистим старые step картинки
+        for path in base.glob("graph_*_step.png"):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
     tree = Graph(GraphType.UNDIRECTED)
 
-    # степени (0-based индексация)
     degrees = [1] * n
     for el in code:
-        # el должен быть в 0..n-1
         degrees[el] += 1
 
-    # находим минимальный лист
+    # минимальный лист
     min_leaf = 0
     while min_leaf < n and degrees[min_leaf] != 1:
         min_leaf += 1
@@ -535,7 +619,6 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
 
     step = 1
     for el in code:
-        # добавляем ребро (p, el)
         tree.add_edge(p, el)
 
         if steps:
@@ -546,11 +629,9 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
             tree.node(p)._attrs["fillcolor"] = "#ffffff"
             step += 1
 
-        # "удаляем" лист p
         degrees[p] = 0
         degrees[el] -= 1
 
-        # выбираем следующий минимальный лист
         if degrees[el] == 1 and el < min_leaf:
             p = el
         else:
@@ -558,7 +639,7 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
                 min_leaf += 1
             p = min_leaf
 
-    # соединяем последние два листа
+    # последние два листа
     u = degrees.index(1)
     degrees[u] = 0
     v = degrees.index(1)
@@ -568,44 +649,46 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
         tree.node(u)._attrs["fillcolor"] = "#00ff00"
         tree.node(v)._attrs["fillcolor"] = "#00ff00"
         tree.export_to_png(f"graph_{step}_step.png", code_type="prufer", dark=True)
+        tree.node(u)._attrs["fillcolor"] = "#ffffff"
+        tree.node(v)._attrs["fillcolor"] = "#ffffff"
 
     return tree
 
-def from_sheppard(code: list, steps: bool = False) -> Graph:
-    """
-    Rekonstrukce grafu ze Sheppardova kódu.
-    Každá pozice kódu i obsahuje číslo j,
-    což znamená hranu (j, j+i+1).
+from typing import Optional
 
-    Vrcholy které nebyly nalezeny doplníme.
-    """
+def from_sheppard(code: list[int], steps: bool = False, complete=False) -> Graph:
+    if any(code[i] > len(code) - i - 1 
+           or code[i] < 0 
+           or type(code[i]) is not int for i in range(len(code))):
+        raise ValueError(f"Invalid Sheppard code")
+
     if steps:
-        BASE_DIR = Path(__file__).resolve().parent / "sheppard"
-        for path in BASE_DIR.glob("graph_*_step.png"):
+        base = steps_dir("sheppard")
+        for path in base.glob("graph_*_step.png"):
             try:
-                os.remove(path)
+                path.unlink()
             except FileNotFoundError:
                 pass
-        try:
-            os.remove("final_graph.png")
-        except FileNotFoundError:
-            pass
 
     graph = Graph(GraphType.UNDIRECTED)
-    for i in range(len(code)):
-        graph.add_edge(code[i], code[i] + i + 1)
-        if steps:
-            graph.node(code[i])._attrs["fillcolor"] = "#ff0000"
-            graph.node(code[i] + i + 1)._attrs["fillcolor"] = "#0000ff"
-            graph.export_to_png(f"graph_{i + 1}_step.png", "sheppard", dark=True)
-            graph.node(code[i])._attrs["fillcolor"] = "#ffffff"
-            graph.node(code[i] + i + 1)._attrs["fillcolor"] = "#ffffff"
 
-    # добиваем вершины 0..n-1, где n = len(code)+1
-    for v in range(0, len(code) + 1):
-        graph.add_node(v)
+    for i, u in enumerate(code):
+        v = u + i + 1
+        graph.add_edge(u, v)
+
+        if steps:
+            graph.node(u)._attrs["fillcolor"] = "#ff0000"
+            graph.node(v)._attrs["fillcolor"] = "#0000ff"
+            graph.export_to_png(f"graph_{i + 1}_step.png", code_type="sheppard", dark=True)
+            graph.node(u)._attrs["fillcolor"] = "#ffffff"
+            graph.node(v)._attrs["fillcolor"] = "#ffffff"
+
+    if complete:
+        for i in range(len(code)):
+            graph.add_node(i)
 
     return graph
+
 
 def sheppard_uses_all_vertices(code, n: int) -> bool:
     """
@@ -665,7 +748,6 @@ def check_batch_sheppard(codes_batch, n):
         results.append(inv_pr)
 
     return results
-
 
 # ---- pomocná funkce pro dávky ----
 def take_batch(it, batch_size):
@@ -754,211 +836,5 @@ def sort_and_index_file(filepath: str, n: int) -> None:
 
     print(f"[index] Hotovo: seřazeno + index přepsán: {filepath}")
 
-# ================== HLAVNÍ FUNKCE ==================
-
-def graceful_codes_from_sheppard(
-    n,
-    output_file=None,
-    workers=2,
-    batch_size=12000,
-    max_inflight=12,
-    heartbeat_sec=4.0,
-    buf_write_every=30_000,
-    sort=False,
-    max_file_mb=50,   # Лимит размера ОДНОГО файла в мегабайтах
-):
-    """
-    Параллельный проход по Sheppard-кодам для n:
-      - sheppard_uses_all_vertices(code, n)
-      - дерево (len(dfs_pruchod()) == n)
-      - tree.is_graceful()
-
-    Для КАЖДОГО найденного дерева записываем:
-      - его Prüfer-код
-      - Prüfer-код дерева-инволюции
-
-    Формат вывода:
-      - создаётся несколько файлов:
-            {base_name}_part_001.txt
-            {base_name}_part_002.txt
-            ...
-      - каждая строка: один Prüfer-код в виде "(..., ..., ...)".
-      - как только размер текущего файла превышает max_file_mb МБ,
-        открывается новый файл (номер части ++).
-    """
-
-    # --- Куда писать и какое базовое имя использовать для частей ---
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    OUTPUTS_DIR = PROJECT_ROOT / "outputs"
-    if output_file is None:
-        out_dir = OUTPUTS_DIR / "sheppard" / f"n={n}"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        if sort:
-            base_name = f"graceful_sheppard_{n}_sort"
-        else:
-            base_name = f"graceful_sheppard_{n}"
-    else:
-        # Если задан полный путь, разбиваем его на каталог + базовое имя
-        output_file = os.path.abspath(output_file)
-        out_dir, base = os.path.split(output_file)
-        os.makedirs(out_dir, exist_ok=True)
-        base_name, _ = os.path.splitext(base)
-
-    # Лимит размера одной части в байтах
-    limit_bytes = max_file_mb * 1024 * 1024
-
-    def make_part_path(part_idx: int) -> str:
-        """Построить путь к файлу для части с номером part_idx."""
-        return os.path.join(out_dir, f"{base_name}_part_{part_idx:03d}.txt")
-
-    total_sheppard = 0  # сколько Sheppard-кодов проверено
-    total_prufer = 0    # сколько Prüfer-кодов записано
-
-    t0 = time.perf_counter()
-    last_print = t0
-    last_total_sheppard = 0
-
-    print(
-        f"[main] (Sheppard) n={n}, workers={workers}, batch_size={batch_size}, "
-        f"max_inflight={max_inflight}, max_file_mb={max_file_mb}",
-        flush=True,
-    )
-
-    codes_iter = all_sheppard_codes(n)  # генерируем ПЕРВУЮ половину Sheppard-кодов
-
-    buf = []
-
-    # --- Параллельный проход + запись с делением на части ---
-    with ProcessPoolExecutor(max_workers=workers) as ex:
-        part_idx = 1
-        out_path = make_part_path(part_idx)
-        out = open(out_path, "w", encoding="utf-8")
-        current_size = 0  # сколько байт уже записано в текущий файл
-
-        def flush_buf():
-            """
-            Сбросить буфер в файл.
-            Формат: числа, разделённые пробелом, одна строка = один Prüfer-код.
-            """
-            nonlocal out, current_size, part_idx, out_path, buf
-            if not buf:
-                return
-
-            # формируем текст без скобок и запятых
-            lines = [" ".join(str(x) for x in pr) for pr in buf]
-            text = "\n".join(lines) + "\n"
-
-            data = text.encode("utf-8")
-            size = len(data)
-
-            if current_size + size > limit_bytes and current_size > 0:
-                out.close()
-                part_idx += 1
-                out_path = make_part_path(part_idx)
-                out = open(out_path, "w", encoding="utf-8")
-                current_size = 0
-
-            out.write(text)
-            current_size += size
-            buf.clear()
-
-        try:
-            inflight = set()
-            fut_sizes = {}  # future -> сколько Sheppard-кодов было в батче
-
-            # --- начальная загрузка очереди ---
-            while len(inflight) < max_inflight:
-                batch = take_batch(codes_iter, batch_size)
-                if not batch:
-                    break
-                fut = ex.submit(check_batch_sheppard, batch, n)
-                inflight.add(fut)
-                fut_sizes[fut] = len(batch)
-
-            # --- основной цикл обработки результатов ---
-            while inflight:
-                done_any = False
-
-                for fut in as_completed(list(inflight), timeout=heartbeat_sec):
-                    inflight.remove(fut)
-                    batch_size_done = fut_sizes.pop(fut, 0)
-
-                    # эти Sheppard-коды мы уже проверили
-                    total_sheppard += batch_size_done
-
-                    # тут приходит список Prüfer-кодов [pr1, pr1_inv, pr2, pr2_inv, ...]
-                    prufer_list = fut.result()
-                    total_prufer += len(prufer_list)
-
-                    # складываем Prüfer-коды в буфер
-                    for pr in prufer_list:
-                        buf.append(pr)
-                        if len(buf) >= buf_write_every:
-                            flush_buf()
-
-                    # подкидываем новую порцию
-                    batch = take_batch(codes_iter, batch_size)
-                    if batch:
-                        new_fut = ex.submit(check_batch_sheppard, batch, n)
-                        inflight.add(new_fut)
-                        fut_sizes[new_fut] = len(batch)
-
-                    now = time.perf_counter()
-                    done_any = True
-
-                # --- heartbeat, pokud algoritmus stale běží ---
-                now = time.perf_counter()
-                if (not done_any) or (now - last_print >= heartbeat_sec):
-                    elapsed = now - t0
-                    elapsed_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
-                    avg = total_sheppard / elapsed if elapsed > 0 else 0.0
-                    inst = (
-                        (total_sheppard - last_total_sheppard) / (now - last_print)
-                        if now > last_print else 0.0
-                    )
-                    print(
-                        f"\r[hb] (Sheppard) {total_sheppard:,} Š-kódů | "
-                        f"{total_prufer:,} Prüfer-kódů | "
-                        f"průměrně: {avg:,.0f}/s | aktuálně: {inst:,.0f}/s | "
-                        f"uplynulo: {elapsed_str} | inflight={len(inflight)}",
-                        end="",
-                        flush=True,
-                    )
-                    last_print = now
-                    last_total_sheppard = total_sheppard
-
-            # --- добросброс буфера ---
-            flush_buf()
-
-        finally:
-            out.close()
-
-    elapsed = time.perf_counter() - t0
-    print()
-    print(
-        f"[done] (Sheppard) Zkontrolováno Š-kódů: {total_sheppard:,} | "
-        f"zapsaných Prüfer-kódů (včetně involucí): {total_prufer:,} | "
-        f"průměrně ~{total_sheppard/elapsed:,.0f}/s | "
-        f"výstup v adresáři: {out_dir}, soubory {base_name}_part_XXX.txt",
-        flush=True,
-    )
-
-    # --- Локальная сортировка КАЖДОГО файла-части, если sort=True ---
-    if sort:
-        pattern = os.path.join(out_dir, f"{base_name}_part_*.txt")
-        part_files = sorted(glob.glob(pattern))
-
-        print(
-            f"[sort] sort=True, třídím jednotlivé části "
-            f"({len(part_files)} souborů)...",
-            flush=True,
-        )
-
-        for path in part_files:
-            print(f"[sort] -> {os.path.basename(path)}", flush=True)
-            sort_and_index_file(path, n)
-
-
 if __name__ == "__main__":
-    # Příklad: spuštění Sheppardového průchodu pro stromy s n vrcholy
-    graceful_codes_from_sheppard(n=11, workers=5, max_file_mb=50)
+    print(from_sheppard([5, 1, 0, 0]))
