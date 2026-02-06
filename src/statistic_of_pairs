@@ -1,0 +1,131 @@
+import re
+from pathlib import Path
+from typing import Callable, Dict, List, Optional
+import Diktyonphi as phi
+
+_int_re = re.compile(r"-?\d+")
+
+def parse_code_line(
+    line: str,
+    expected_len: int,
+    drop_leading_index_if_present: bool = True,
+) -> Optional[List[int]]:
+    nums = list(map(int, _int_re.findall(line)))
+    if drop_leading_index_if_present and len(nums) == expected_len + 1:
+        nums = nums[1:]
+    if len(nums) != expected_len:
+        return None
+    return nums
+
+def iter_input_files(path_or_dir: Path, pattern: str) -> List[Path]:
+    if path_or_dir.is_dir():
+        return sorted(path_or_dir.glob(pattern))
+    return [path_or_dir]
+
+def classify_paired_files(
+    input_path_or_dir: str | Path,
+    *,
+    n: int,
+    expected_len: int,                 # n-2
+    rank_fn: Callable[[List[int]], int],
+    files_pattern: str = "*_part_*.txt",
+    drop_leading_index_if_present: bool = True,
+    strict_pairs: bool = True,
+) -> Dict[str, int]:
+    """
+    В каждом файле строки идут парами:
+      line 1: code
+      line 2: paired code (involution)
+      line 3: next code
+      line 4: its pair
+      ...
+
+    Категории:
+      FF: оба ранга в первой половине
+      SS: оба ранга во второй половине
+      FS: один в первой, другой во второй
+    """
+    input_path_or_dir = Path(input_path_or_dir)
+    files = iter_input_files(input_path_or_dir, files_pattern)
+    if not files:
+        raise FileNotFoundError(f"No files matched pattern {files_pattern} in {input_path_or_dir}")
+
+    half = (n ** expected_len)
+
+    stats = {
+        "files": len(files),
+        "file_pairs": 0,
+        "lines_read": 0,
+        "pairs_total": 0,
+        "pairs_ok": 0,
+        "pairs_bad": 0,
+        "FF_both_first": 0,
+        "SS_both_second": 0,
+        "FS_split": 0,
+    }
+
+    for fp in files:
+        with fp.open("r", encoding="utf-8", errors="replace") as f:
+            local_pairs = 0
+            while True:
+                line1 = f.readline()
+                if not line1:
+                    break
+                line2 = f.readline()
+
+                stats["lines_read"] += 1
+                if not line2:
+                    if strict_pairs:
+                        raise ValueError(f"{fp}: odd number of lines (last code has no pair).")
+                    stats["pairs_bad"] += 1
+                    break
+
+                stats["lines_read"] += 1
+                stats["pairs_total"] += 1
+                local_pairs += 1
+
+                code1 = parse_code_line(line1, expected_len, drop_leading_index_if_present)
+                code2 = parse_code_line(line2, expected_len, drop_leading_index_if_present)
+
+                if code1 is None or code2 is None:
+                    stats["pairs_bad"] += 1
+                    if strict_pairs:
+                        raise ValueError(
+                            f"{fp}: bad pair at local pair #{local_pairs} "
+                            f"(expected_len={expected_len})."
+                        )
+                    continue
+
+                r1 = rank_fn(code1, n)
+                r2 = rank_fn(code2, n)
+
+                in_first_1 = (r1 < half)
+                in_first_2 = (r2 < half)
+
+                stats["pairs_ok"] += 1
+                if in_first_1 and in_first_2:
+                    stats["FF_both_first"] += 1
+                elif (not in_first_1) and (not in_first_2):
+                    stats["SS_both_second"] += 1
+                else:
+                    stats["FS_split"] += 1
+
+            stats["file_pairs"] += local_pairs
+
+    return stats
+
+if __name__ == "__main__":
+    n = 4
+    expected_len = n - 2
+
+    stats = classify_paired_files(
+        input_path_or_dir=rf"C:\Users\Igor\Desktop\Python-programs\bachelors\data\n={n}",
+        n=n,
+        expected_len=expected_len,
+        rank_fn=phi.prufer_lex_rank,
+        files_pattern=f"graceful_sheppard_{n}_part_*.txt",
+        drop_leading_index_if_present=True,
+        strict_pairs=True,
+    )
+    print(stats)
+    print(phi.prufer_lex_rank([2, 4, 0], 5))
