@@ -92,16 +92,16 @@ def check_batch_sheppard(codes_batch, n, involution=None, PATTERN_DEGREE=None, P
 def graceful_codes_from_sheppard(
     n=10,
     pattern: "Graph" = None,
+    involution=True,
+    sort=False,
     output_dir: str | Path | None = None,
     output_file=None,
+    max_file_mb=50,
     workers=2,
     batch_size=12000,
     max_inflight=12,
     heartbeat_sec=4.0,
-    buf_write_every=30_000,
-    sort=False,
-    involution=True,
-    max_file_mb=50,   # Лимит размера ОДНОГО файла в мегабайтах
+    buf_write_every=30_000
 ):
     """
     Параллельный проход по Sheppard-кодам для n:
