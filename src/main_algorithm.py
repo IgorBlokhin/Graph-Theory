@@ -3,7 +3,6 @@ import Diktyonphi as phi
 import glob, time, os
 from pathlib import Path
 from paths import data_dir
-from collections import deque
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def find_center(tree: Graph):
@@ -54,46 +53,6 @@ def is_isomorphic(tree1: Graph, PATTERN_DEGREE, PATTERN_CANONICAL):
         return False
     return True
 
-def is_tree_sheppard(code: list[int]) -> bool:
-    n = len(code) + 1
-    parent = list(range(n))
-
-    # локальные ссылки (быстрее)
-    par = parent
-
-    for i, u in enumerate(code):
-        v = u + i + 1
-        if v >= n or u < 0 or u >= n:
-            return False
-
-        # find(u) — инлайн (без вызова функции)
-        x = u
-        while par[x] != x:
-            par[x] = par[par[x]]
-            x = par[x]
-        ru = x
-
-        # find(v) — инлайн
-        x = v
-        while par[x] != x:
-            par[x] = par[par[x]]
-            x = par[x]
-        rv = x
-
-        if ru == rv:
-            return False  # цикл
-
-        # union (без size/rank — для n=12 обычно быстрее)
-        par[rv] = ru
-
-    return True
-
-def from_sheppard_checked(code: list[int], steps: bool = False):
-    # если steps=True, проверку всё равно делаем, но строим с визуализацией
-    if not is_tree_sheppard(code):
-        return None
-    return phi.from_sheppard(code, steps=steps)
-
 def check_batch_sheppard(codes_batch, n, involution=None, PATTERN_DEGREE=None, PATTERN_CANONICAL=None):
     """
     На вход: список Sheppard-кодов длины n-1.
@@ -105,19 +64,15 @@ def check_batch_sheppard(codes_batch, n, involution=None, PATTERN_DEGREE=None, P
 
     for shep in codes_batch:
         # 1) используют ли все вершины?
-        # if not phi.sheppard_uses_all_vertices(shep, n):
-        #     continue
-
-        # 2) строим дерево
-        tree = from_sheppard_checked(shep)
-        if tree is None:
+        if not phi.sheppard_uses_all_vertices(shep, n):
             continue
 
-        # 3) проверка: это действительно дерево (связный граф на n вершинах)
-        # dfs_pruchod должен пройти все n вершин
-        # if len(tree.dfs_pruchod()) != n:
-        #     continue
+        # 2) строим дерево
+        tree = phi.from_sheppard(shep)
+        if len(tree.dfs_pruchod()) != n:
+            continue
 
+        # 3) если задан паттерн, проверить соответсвует ли ему полученное дерево
         if PATTERN_DEGREE is not None and PATTERN_CANONICAL is not None:
             if is_isomorphic(tree, PATTERN_DEGREE, PATTERN_CANONICAL) == False:
                 continue
@@ -349,12 +304,11 @@ def graceful_codes_from_sheppard(
             phi.sort_and_index_file(path, n)
 
 if __name__ == "__main__":
-    n=9
+    n=12
     graceful_codes_from_sheppard(n=n,
-                                 pattern=phi.from_prufer((8, 2, 3, 4, 3, 6, 3)), 
                                  workers=6, 
-                                 involution=True, 
+                                 involution=False, 
                                  batch_size=12000, 
                                  output_dir=fr"C:\Users\Igor\Desktop\Python-programs\bachelors\data\n={n}",
-                                 output_file=f"graceful_suspect_{n}.txt"
+                                 output_file=f"graceful_sheppard_no_involution{n}.txt"
     )
