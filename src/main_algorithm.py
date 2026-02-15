@@ -56,10 +56,18 @@ def is_isomorphic_binary_code(tree1: Graph, PATTERN_CANONICAL):
 
 def check_batch_sheppard(codes_batch, n, involution=None, PATTERN_DEGREE=None, PATTERN_CANONICAL=None):
     """
-    Na vstupu: seznam Sheppardových kódů délky n-1.
-    Na výstupu: seznam Prüferových kódů:
-    [pr1, pr2, ...]
-    kde každý pr* je tuple délky n-2.
+    Zpracuje dávku Sheppardových kódů a vrátí odpovídající
+    Prüferovy kódy stromů, které splňují zadané podmínky.
+    
+    Parametry:
+        codes_batch (list): seznam Sheppardových kódů délky n-1.
+        n (int): počet vrcholů.
+        involution (bool): zda se má přidat i involutorní kód.
+        PATTERN_DEGREE (tuple | None): multimnožina stupňů vzorového stromu.
+        PATTERN_CANONICAL (str | None): kanonický kód vzorového stromu.
+    
+    Návratová hodnota:
+        list[tuple[int, ...]]: seznam Prüferových kódů.
     """
     results = []
 
@@ -167,24 +175,27 @@ def graceful_prufer_codes_n(
     max_file_mb: int | None = 50,
 ):
     """
-    Paralelní průchod Sheppardovými kódy pro dané číslo n:
-      - sheppard_uses_all_vertices(code, n)
-      - test že graf je stromem
-      - test izomorfismu se zadaným stromem (pokud je strom zadán)
+    Hlavní paralelní procedura pro generování graciózních 
+    Prüferových kódů pro daný počet vrcholů n.
 
-    Pro KAŽDÝ nalezený strom zaznamenáme:
-      - jeho Prüferův kód
-      - Prüferův kód stromu-involuce (pokud involution=True)
+    Vstup:
+        n (int): počet vrcholů stromu.
+        pattern (Graph | None): volitelný vzorový strom pro filtraci.
+        output_dir (Path | None): cílový adresář pro výstupní soubory.
+        output_file (str | None): základní název výstupních souborů.
+        workers (int): počet paralelních procesů.
+        batch_size (int): velikost dávky Sheppardových kódů.
+        max_inflight (int): maximální počet paralelně zpracovávaných dávek.
+        heartbeat_sec (int): interval výpisu průběžných statistik.
+        buf_write_every (int): velikost interního bufferu pro zápis.
+        sort (bool): zda mají být výstupní soubory lexikograficky seřazeny.
+        involution (bool): zda se mají generovat i involutorní kódy.
+        max_file_mb (int): maximální velikost jednoho výstupního souboru.
 
-    Formát výstupu:
-      - vytvoří se několik souborů:
-            {base_name}_part_001.txt
-            {base_name}_part_002.txt
-            ...
-      - každý řádek: jeden Prüferův kód ve formě „... ... ...“ nebo „rank ... ... ..."
-        (pokud sort=True).
-      - jakmile velikost aktuálního souboru překročí max_file_mb MB,
-        otevře se nový soubor (číslo části ++).
+    Výstup:
+        Funkce vrací None.
+        Výsledkem jsou textové soubory obsahující všechny nalezené
+        graciózní Prüferovy kódy v daném rozsahu.
     """
 
     if output_dir is not None:
