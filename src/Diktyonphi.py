@@ -1,11 +1,8 @@
-import enum, subprocess, heapq, time, os, glob
+import enum, subprocess, heapq
 from typing import Dict, Hashable, Any, Optional, Iterator, Tuple, List
 from itertools import product as prod
-from itertools import islice
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from pathlib import Path
-from invert_color import invert
-from paths import app_dir, project_root, data_dir, outputs_dir, steps_dir
+from PIL import Image
+from paths import steps_dir
 
 class GraphType(enum.Enum):
     """Typ orientace grafu: orientovaný nebo neorientovaný."""
@@ -131,7 +128,7 @@ class Graph:
         """
         self.type = type
         self._nodes: Dict[Hashable, Node] = {}
-        self._edges: Dict[Hashable, Edge] = {}
+        self._edges: Dict[Tuple, Dict] = {}
 
     def add_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> Node:
         """
@@ -144,36 +141,6 @@ class Graph:
         if node_id in self._nodes:
             return
         return self._create_node(node_id, attrs if attrs is not None else {})
-
-    def add_edge(self, src_id: Hashable, dst_id: Hashable,
-                 attrs: Optional[Dict[str, Any]] = None) -> Tuple[Node, Node]:
-        """
-        Přidá novou hranu mezi dvěma vrcholy. Vrcholy se vytvoří automaticky,
-        pokud neexistují.
-
-        :param src_id: Zdrojový vrchol.
-        :param dst_id: Cílový vrchol.
-        :param attrs: Volitelný slovník atributů hrany.
-        :return: (zdrojový vrchol, cílový vrchol)
-        """
-        if self.type == GraphType.UNDIRECTED:
-            if (src_id, dst_id) in self._edges or (dst_id, src_id) in self._edges:
-                return None
-
-        if self.type == GraphType.DIRECTED:
-            if (src_id, dst_id) in self._edges:
-                return None
-
-        attrs = attrs if attrs is not None else {}
-        if src_id not in self._nodes:
-            self._create_node(src_id, {})
-        if dst_id not in self._nodes:
-            self._create_node(dst_id, {})
-        self._set_edge(src_id, dst_id, attrs)
-        if self.type == GraphType.UNDIRECTED:
-            self._set_edge(dst_id, src_id, attrs)
-        self._edges[(src_id, dst_id)] = attrs
-        return (self._nodes[src_id], self._nodes[dst_id])
 
     def __contains__(self, node_id: Hashable) -> bool:
         """Vrací True, pokud graf obsahuje vrchol se zadaným ID."""
@@ -201,7 +168,8 @@ class Graph:
         """
         return self._nodes[node_id]
     
-    def edge(self, ids: Tuple[int, int]) -> Edge:
+    def edge(self, ids: Tuple[int, int]) -> Dict:
+        """Vrací slovník atributů hrany"""
         return self._edges[ids]
 
     def _create_node(self, node_id: Hashable, attrs: Optional[Dict[str, Any]] = None) -> Node:
@@ -216,29 +184,73 @@ class Graph:
             return None
         self._nodes[src_id]._neighbors[target_id] = attrs
 
-    def del_node(self, node_id) -> None:
-        """Odstraní vrchol a všechny hrany, které na něj vedou."""
-        for neighbor_id in self.node(node_id).neighbor_ids:
-            self.node(neighbor_id)._neighbors.pop(node_id)
-        self._nodes.pop(node_id)
+    def _edge_key(self, u, v):
+        """
+        Kanonický klíč hrany:
+        - UNDIRECTED: (min(u,v), max(u,v))
+        - DIRECTED:   (u,v)
+        """
+        if self.type == GraphType.UNDIRECTED:
+            return (u, v) if u <= v else (v, u)
+        return (u, v)
 
-    def del_edge(self, node_id_1, node_id_2) -> None:
+    def add_edge(self, src_id, dst_id, attrs=None):
+        """
+        Přidá hranu. U neorientovaného grafu ignoruje pořadí vrcholů.
+        Vrcholy se vytvoří automaticky, pokud neexistují.
+        """
+        attrs = attrs if attrs is not None else {}
+
+        if src_id not in self._nodes:
+            self._create_node(src_id, {})
+        if dst_id not in self._nodes:
+            self._create_node(dst_id, {})
+
+        key = self._edge_key(src_id, dst_id)
+
+        if key in self._edges:
+            return None
+
+        self._set_edge(src_id, dst_id, attrs)
+        if self.type == GraphType.UNDIRECTED:
+            self._set_edge(dst_id, src_id, attrs)
+
+        self._edges[key] = attrs
+        return (self._nodes[src_id], self._nodes[dst_id])
+
+    def del_edge(self, u, v) -> None:
         """
         Odstraní hranu mezi dvěma vrcholy.
-
-        :raises ValueError: Pokud vrcholy nebo hrana neexistují.
+        U neorientovaného grafu nezáleží na pořadí (u,v).
         """
-        if self.__contains__(node_id_1) is False:
-            raise ValueError(f"Vrchol {node_id_1} neexistuje")
-        elif self.__contains__(node_id_2) is False:
-            raise ValueError(f"Vrchol {node_id_2} neexistuje")
-        elif node_id_1 not in self.node(node_id_2)._neighbors and node_id_2 not in self.node(node_id_1)._neighbors:
-            raise ValueError(f"Hrana mezi {node_id_1} a {node_id_2} neexistuje")
+        if u not in self._nodes:
+            raise ValueError(f"Vrchol {u} neexistuje")
+        if v not in self._nodes:
+            raise ValueError(f"Vrchol {v} neexistuje")
 
-        if node_id_2 in self.node(node_id_1)._neighbors:
-            self.node(node_id_1)._neighbors.pop(node_id_2)
-        if node_id_1 in self.node(node_id_2)._neighbors:
-            self.node(node_id_2)._neighbors.pop(node_id_1)
+        key = self._edge_key(u, v)
+        if key not in self._edges:
+            raise ValueError(f"Hrana mezi {u} a {v} neexistuje")
+
+        self._nodes[u]._neighbors.pop(v, None)
+        if self.type == GraphType.UNDIRECTED:
+            self._nodes[v]._neighbors.pop(u, None)
+
+        self._edges.pop(key)
+
+    def del_node(self, node_id) -> None:
+        """
+        Odstraní vrchol a všechny incidentní hrany.
+        (Důležité: odstraní i z _edges.)
+        """
+        if node_id not in self._nodes:
+            return
+
+        neighbors = list(self._nodes[node_id]._neighbors.keys())
+        for nb in neighbors:
+            self.del_edge(node_id, nb)
+
+        self._nodes.pop(node_id)
 
     def set_node_id(self, old_id, new_id):
         """
@@ -273,7 +285,6 @@ class Graph:
             graph.add_edge(u, v)
 
         return graph
-
 
     def __repr__(self):
         edges = sum(node.out_degree for node in self._nodes.values())
@@ -338,11 +349,10 @@ class Graph:
         dark: bool = False
     ) -> str:
         """
-        Экспортирует граф в PNG и возвращает полный путь к файлу.
+        Exportuje graf do formátu PNG a vrací úplnou cestu k souboru.
 
-        ВАЖНО:
-        - всегда пишет в outputs/... (рядом с exe/py)
-        - никогда не пишет рядом с модулем (в exe это может быть недоступно)
+        DŮLEŽITÉ:
+        - vždy zapisuje do outputs/...
         """
         if code_type is None:
             code_type = "graphs"
@@ -362,42 +372,38 @@ class Graph:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Graphviz 'dot' selhal: {e}") from e
 
+        def invert(path: str, name: str):
+            img = Image.open(path).convert("RGBA")
+            img = img.crop((0, 0, img.width - 3, img.height - 3))
+            px = img.load()
+            new_img = img.copy()
+            new_px = new_img.load()
+
+            for h in range(img.height):
+                for w in range(img.width):
+                    if px[w, h] == (255, 255, 255, 255):
+                        new_px[w, h] = (37, 37, 38, 255)
+
+                    elif px[w, h] in [(255, 0, 0, 255), 
+                                      (0, 0, 255, 255),
+                                      (255, 0, 255, 255)]:
+                        continue
+
+                    else:
+                        new_px[w, h] = (255 - px[w, h][0],
+                                        255 - px[w, h][1],
+                                        255 - px[w, h][2])
+
+            new_img.save(name)
+
         if dark is True:
             invert(str(filename), str(filename))
 
         return str(filename)
 
-    def _repr_svg_(self):
-        """
-        Vráti SVG reprezentaci grafu pro Jupyter Notebook
-        (IPython inline protokol).
-        """
-        return self.to_image().data
-
-    def to_image(self):
-        """
-        Vrátí graf jako SVG (vhodné pro zobrazení v IPythonu).
-        """
-        from IPython.display import SVG
-        dot_data = self.to_dot()
-        try:
-            process = subprocess.run(
-                ['dot', '-Tsvg'],
-                input=dot_data,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True
-            )
-            return SVG(data=process.stdout)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"Graphviz 'dot' selhal: {e} s chybou: {e.stderr}"
-            ) from e
-
     def __str__(self):
         """Stručná textová reprezentace vrcholů a hran."""
-        return f"Vertexes: {sorted(list(self._nodes.keys()))}, edges: {sorted(self._edges)}"
+        return f"Vertexes: {list(self._nodes.keys())}, edges: {list(self._edges.keys())}"
 
     def dfs_pruchod(self, id=None, visited=None, result=None):
         """
@@ -421,17 +427,11 @@ class Graph:
         return result
     
     def is_tree(self):
-        """
-        Ověřuje, zda je graf stromem. Graf není stromem, pokud počet
-        hran se nerovná počtu vrcholů, snižinému o 1 nebo pokud má víc
-        než jednu komponentu souvislosti, což ověřujeme pomoci algoritmu
-        prohledávání do hloubky
-        """
-        if (len(self._edges) != len(self._nodes) - 1 or
-            len(self.dfs_pruchod(list(self._nodes)[0])) != len(self._nodes) or 
-            not self._edges):
-            return False
-        return True
+        """Ověřuje, zda je graf stromem."""
+        if (len(self._edges) == len(self._nodes) - 1 and
+            len(self.dfs_pruchod(list(self._nodes)[0])) == len(self._nodes)):
+            return True
+        return False
 
     def to_prufer(self, steps: bool = False):
         """
@@ -439,7 +439,7 @@ class Graph:
         - opakovaně hledá nejmenší list
         - odstraní list
         - zapíše jeho souseda do kódu
-        - opakuje se, dokud nez;stalu dva vrcholy
+        - opakuje se, dokud nezůstaly dva vrcholy
         """
         if self.is_tree() is False:
             return
@@ -506,7 +506,6 @@ class Graph:
         graph = self.copy()
         if steps:
             base = steps_dir("sheppard")
-            # чистим старые step картинки
             for path in base.glob("to_code_*_step.png"):
                 try:
                     path.unlink()
@@ -543,36 +542,30 @@ class Graph:
         return new_graph
     
     def canonical_code(self, node_id, parent_id=None):
-        # дети = все соседи, кроме родителя (если родитель задан)
         children = [nid for nid in self.node(node_id).neighbor_ids
                     if parent_id is None or nid != parent_id]
 
-        # лист (относительно parent_id)
         if not children:
             return "01"
 
-        # получить коды всех поддеревьев детей
         codes = [self.canonical_code(child, node_id) for child in children]
-
-        # каноничность: сортируем коды детей
         codes.sort()
-
-        # собрать и вернуть код текущей вершины
-        return "0" + "".join(codes) + "1"
+        code = "0" + "".join(codes) + "1"
+        return code
                 
 def all_sheppard_codes(n):
     """
     Generátor „první poloviny“ Sheppardových kódů pro dané n.
     Celkový počet Sheppardových kódů je (n-1)!,
-    zde vracíme nejvýše (n-1)! / 2 (lexikograficky první polovinu).
+    vrací (n-1)! / 2 (lexikograficky první polovinu).
     """
     ranges = []
     total = 1
 
     for j in range(n - 1):
-        L = n - 1 - j          # длины: n-1, n-2, ..., 1
+        L = n - 1 - j
         total *= L
-        ranges.append(range(0, L))  # 0..L-1
+        ranges.append(range(0, L))
 
     limit = int(total / 2)
     count = 0
@@ -586,19 +579,17 @@ def all_sheppard_codes(n):
 def from_prufer(code: List[int], steps: bool = False) -> Graph:
     """
     Rekonstrukce stromu z Prüferova kódu (0-based).
-    Vršoly: 0..n-1, kde n = len(code) + 2
+    Vrcholy: 0..n-1, kde n = len(code) + 2,
     Kód: délky n-2, hodnoty 0..n-1
     """
     code = [int(x) for x in code]
     n = len(code) + 2
 
-    # быстрые проверки диапазона
     if any(x < 0 or x > n - 1 for x in code):
         raise ValueError(f"Invalid Prüfer code")
 
     if steps:
         base = steps_dir("prufer")
-        # чистим старые step картинки
         for path in base.glob("graph_*_step.png"):
             try:
                 path.unlink()
@@ -611,7 +602,6 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
     for el in code:
         degrees[el] += 1
 
-    # минимальный лист
     min_leaf = 0
     while min_leaf < n and degrees[min_leaf] != 1:
         min_leaf += 1
@@ -622,9 +612,9 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
         tree.add_edge(p, el)
 
         if steps:
-            tree.node(el)._attrs["fillcolor"] = "#ff0000"
-            tree.node(p)._attrs["fillcolor"] = "#0000ff"
-            tree.export_to_png(f"graph_{step}_step.png", code_type="prufer", dark=True)
+            tree.node(el)._attrs["fillcolor"] = "#0000ff"
+            tree.node(p)._attrs["fillcolor"] = "#ff0000"
+            tree.export_to_png(f"to_graph_{step}_step.png", code_type="prufer", dark=True)
             tree.node(el)._attrs["fillcolor"] = "#ffffff"
             tree.node(p)._attrs["fillcolor"] = "#ffffff"
             step += 1
@@ -639,24 +629,21 @@ def from_prufer(code: List[int], steps: bool = False) -> Graph:
                 min_leaf += 1
             p = min_leaf
 
-    # последние два листа
     u = degrees.index(1)
     degrees[u] = 0
     v = degrees.index(1)
     tree.add_edge(u, v)
 
     if steps:
-        tree.node(u)._attrs["fillcolor"] = "#00ff00"
-        tree.node(v)._attrs["fillcolor"] = "#00ff00"
-        tree.export_to_png(f"graph_{step}_step.png", code_type="prufer", dark=True)
+        tree.node(u)._attrs["fillcolor"] = "#ff00ff"
+        tree.node(v)._attrs["fillcolor"] = "#ff00ff"
+        tree.export_to_png(f"to_graph_{step}_step.png", code_type="prufer", dark=True)
         tree.node(u)._attrs["fillcolor"] = "#ffffff"
         tree.node(v)._attrs["fillcolor"] = "#ffffff"
 
     return tree
 
-from typing import Optional
-
-def from_sheppard(code: list[int], steps: bool = False, complete=False) -> Graph:
+def from_sheppard(code: list[int], steps: bool = False, complete: bool = False) -> Graph:
     if any(code[i] > len(code) - i - 1 
            or code[i] < 0 
            or type(code[i]) is not int for i in range(len(code))):
@@ -664,7 +651,7 @@ def from_sheppard(code: list[int], steps: bool = False, complete=False) -> Graph
 
     if steps:
         base = steps_dir("sheppard")
-        for path in base.glob("graph_*_step.png"):
+        for path in base.glob("to_graph_*_step.png"):
             try:
                 path.unlink()
             except FileNotFoundError:
@@ -677,9 +664,9 @@ def from_sheppard(code: list[int], steps: bool = False, complete=False) -> Graph
         graph.add_edge(u, v)
 
         if steps:
-            graph.node(u)._attrs["fillcolor"] = "#ff0000"
-            graph.node(v)._attrs["fillcolor"] = "#0000ff"
-            graph.export_to_png(f"graph_{i + 1}_step.png", code_type="sheppard", dark=True)
+            graph.node(u)._attrs["fillcolor"] = "#0000ff"
+            graph.node(v)._attrs["fillcolor"] = "#ff0000"
+            graph.export_to_png(f"to_graph_{i + 1}_step.png", code_type="sheppard", dark=True)
             graph.node(u)._attrs["fillcolor"] = "#ffffff"
             graph.node(v)._attrs["fillcolor"] = "#ffffff"
 
@@ -714,52 +701,12 @@ def involute_prufer_code(code: List[int]) -> List[int]:
     - vrací kód involutorního ohodnocení
     """
     involute_code = from_prufer(code).involute().to_prufer()
-
     return involute_code
-
-def check_batch_sheppard(codes_batch, n):
-    """
-    На вход: список Sheppard-кодов длины n-1.
-    На выход: ПЛОСКИЙ список Prüfer-кодов:
-        [pr1, pr1_inv, pr2, pr2_inv, ...]
-    где каждый pr* — это tuple длины n-2.
-    """
-    results = []
-
-    for shep in codes_batch:
-        # 1) используют ли все вершины?
-        if not sheppard_uses_all_vertices(shep, n):
-            continue
-
-        # 2) строим дерево
-        tree = from_sheppard(shep)
-
-        # 3) проверка: это действительно дерево (связный граф на n вершинах)
-        # dfs_pruchod должен пройти все n вершин
-        if len(tree.dfs_pruchod()) != n:
-            continue
-
-        # 4) если дошли сюда — Sheppard-код задаёт грациозную разметку дерева
-        pr = tuple(tree.to_prufer())
-        inv_pr = tuple(tree.involute().to_prufer())
-
-        # добавляем ОБА Prüfer-кода как отдельные записи
-        results.append(pr)
-        results.append(inv_pr)
-
-    return results
-
-# ---- pomocná funkce pro dávky ----
-def take_batch(it, batch_size):
-    """Vezme z iterátoru další dávku o velikosti batch_size (nebo méně)."""
-    return list(islice(it, batch_size))
-
-import os
 
 def prufer_lex_rank(code: tuple[int, ...], n: int) -> int:
     """
-    Лексикографический ранг (начиная с 1) в пространстве {1..n}^k, k=len(code).
-    Считает через степени: sum((x_i-1) * n^(k-1-i)) + 1
+    Lexikografický rang (počínaje 1) v prostoru {0..n-1}^(n-2), n = len(code) - 2.
+    Počítá se pomocí mocnin: sum((x_i-1) * n^(k-1-i)) + 1
     """
     k = len(code)
     r0 = 0
@@ -768,73 +715,11 @@ def prufer_lex_rank(code: tuple[int, ...], n: int) -> int:
         r0 += x * (n ** power)
     return r0 + 1
 
-def sort_and_index_file(filepath: str, n: int) -> None:
-    """
-    Читает файл, где каждая строка — один Prüfer-код как числа через пробел:
-        "x1 x2 ... x_{n-2}"
-
-    Также поддерживает строки с уже добавленным индексом:
-        "<rank> x1 x2 ... x_{n-2}"
-
-    Сортирует по лексикографическому рангу в Prüfer-пространстве и перезаписывает файл:
-        "<rank>  x1 x2 ... x_{n-2}"
-
-    Индекс выровнен по правому краю.
-    """
-    if not os.path.isfile(filepath):
-        print(f"[index] Soubor nenalezen: {filepath}")
-        return
-
-    k = n - 2
-    codes: list[tuple[int, ...]] = []
-
-    with open(filepath, "r", encoding="utf-8") as f:
-        for line in f:
-            s = line.strip()
-            if not s:
-                continue
-
-            # Пытаемся вытащить все целые из строки
-            parts = s.split()
-            try:
-                nums = [int(p) for p in parts]
-            except ValueError:
-                # если попалась нечисловая строка — пропускаем
-                continue
-
-            # Различаем:
-            #  - [x1..xk]                 -> len == k
-            #  - [rank, x1..xk]           -> len == k+1
-            if len(nums) == k:
-                code = tuple(nums)
-            elif len(nums) == k + 1:
-                code = tuple(nums[1:])
-            else:
-                continue
-
-            # Проверяем диапазон значений Prüfer-кода
-            if any(not (0 <= x <= n-1) for x in code):
-                continue
-
-            codes.append(code)
-
-    if not codes:
-        print(f"[index] Žádné platné kódy v souboru: {filepath}")
-        return
-
-    # Сортировка по рангу
-    codes.sort(key=lambda c: prufer_lex_rank(c, n))
-
-    # Ширина для красивого выравнивания индекса
-    max_rank = prufer_lex_rank(codes[-1], n)
-    w = len(str(max_rank))
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        for code in codes:
-            r = prufer_lex_rank(code, n)
-            f.write(f"{r:>{w}}  " + " ".join(map(str, code)) + "\n")
-
-    print(f"[index] Hotovo: seřazeno + index přepsán: {filepath}")
-
 if __name__ == "__main__":
-    print(from_sheppard([5, 1, 0, 0]))
+    graph = Graph(GraphType.UNDIRECTED)
+    graph.add_edge(1, 2)
+    graph.add_edge(2, 3)
+    graph.add_edge(2, 4)
+    graph.add_edge(0, 3)
+    print(graph._edges)
+    graph.del_edge(2, 3)
