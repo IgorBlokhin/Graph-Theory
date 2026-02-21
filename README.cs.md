@@ -8,7 +8,7 @@ Základní myšlenkou je propojení grációzních ohodnocení s Prüferovými
 
 Data v tomto repozitáři se skládají právě z těchto Prüferových kódů. Ohodnocení vrcholů je voleno z množiny {0, 1, ..., n−1} a každý řádek datového souboru odpovídá jednomu Prüferovu kódu délky n−2. Každý takový kód tedy reprezentuje konkrétní grációzní ohodnocení.
 
-Část kódu pro práci s grafy vychází z modulu Diktyonphi, který byl původně vytvořen Jiřím Fišerem pro výukové účely, a byl dále upraven a rozšířen pro potřeby tohoto projektu. Původní verze: https://github.com/Jiri-Fiser/DiktyonPhi/blob/master/diktyonphi.py
+Část kódu pro práci s grafy vychází z modulu Diktyonphi, který byl původně vytvořen Jiřím Fišerem a Jiřím Škvarou z katedry informatiky UJEP pro výukové účely, a byl dále upraven a rozšířen pro potřeby tohoto projektu. Původní verze: https://github.com/Jiri-Fiser/DiktyonPhi/blob/master/diktyonphi.py
 
 Generování dat je algoritmické a reprodukovatelné. Pro pevně daný počet vrcholů n je enumerován prostor Sheppardových kódů, tyto kódy jsou převedeny na grafy, z nichž jsou vybrány pouze stromy, a ty jsou následně reprezentovány pomocí Prüferových kódů. Celkové počty získané tímto postupem souhlasí s dříve publikovanými výsledky o počtech grációzních stromů, což slouží jako ověření správnosti implementace.
 
