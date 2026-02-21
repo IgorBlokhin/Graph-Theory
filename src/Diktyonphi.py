@@ -3,6 +3,7 @@ from typing import Dict, Hashable, Any, Optional, Iterator, Tuple, List
 from itertools import product as prod
 from PIL import Image
 from paths import steps_dir
+from math import factorial
 
 class GraphType(enum.Enum):
     """Typ orientace grafu: orientovaný nebo neorientovaný."""
@@ -552,6 +553,86 @@ class Graph:
         codes.sort()
         code = "0" + "".join(codes) + "1"
         return code
+    
+    def find_center(self):
+        copy_tree = self.copy()
+        if len(copy_tree._nodes) in [0, 1, 2]:
+            return list(copy_tree.node_ids())
+        leaves = [copy_tree.node(id).id for id in copy_tree.node_ids() if copy_tree.node(id).out_degree==1]
+
+        def delete_leaves(leaves):
+            new_leaves = []
+            for leaf in leaves:
+                neighbor_id = next(copy_tree.node(leaf).neighbor_ids)
+                copy_tree.del_node(leaf)
+                if copy_tree.node(neighbor_id).out_degree == 1:
+                    new_leaves.append(neighbor_id)
+
+            if len(copy_tree._nodes) in [0, 1, 2]:
+                return list(copy_tree.node_ids())
+            
+            return delete_leaves(new_leaves)
+
+        return delete_leaves(leaves)
+
+    def min_canonical_code(self):
+        center = self.find_center()
+        if len(center) == 0:
+            return ""
+
+        if len(center) == 1:
+            c = center[0]
+            return self.canonical_code(c, None)
+
+        c1, c2 = center[0], center[1]
+        code1 = self.canonical_code(c1)
+        code2 = self.canonical_code(c2)
+        return min(code1, code2)
+    
+    def code_and_aut(self, node_id, parent_id=None):
+        children = [nid for nid in self.node(node_id).neighbor_ids
+                    if parent_id is None or nid != parent_id]
+
+        # лист относительно parent
+        if not children:
+            return "01", 1
+
+        child_data = [self.code_and_aut(ch, node_id) for ch in children]  # (code, aut)
+        child_data.sort(key=lambda x: x[0])
+
+        aut = 1
+        codes = []
+        i = 0
+        while i < len(child_data):
+            code_i, aut_i = child_data[i]
+            j = i
+            while j < len(child_data) and child_data[j][0] == code_i:
+                j += 1
+            m = j - i
+
+            aut *= factorial(m) * (aut_i ** m)
+
+            # коды детей для сборки кода текущего узла
+            codes.extend(cd for cd, _ in child_data[i:j])
+            i = j
+
+        code = "0" + "".join(codes) + "1"
+        return code, aut
+        
+    def aut_order(self) -> int:
+        centers = self.find_center()
+        if len(centers) == 0:
+            return 1
+        if len(centers) == 1:
+            _, a = self.code_and_aut(centers[0], None)
+            return a
+
+        c1, c2 = centers
+        code1, a1 = self.code_and_aut(c1, c2)  # половина со стороны c1
+        code2, a2 = self.code_and_aut(c2, c1)  # половина со стороны c2
+
+        swap = 2 if code1 == code2 else 1
+        return swap * a1 * a2
                 
 def all_sheppard_codes(n):
     """
@@ -717,9 +798,12 @@ def prufer_lex_rank(code: tuple[int, ...], n: int) -> int:
 
 if __name__ == "__main__":
     graph = Graph(GraphType.UNDIRECTED)
-    graph.add_edge(1, 2)
-    graph.add_edge(2, 3)
-    graph.add_edge(2, 4)
-    graph.add_edge(0, 3)
-    print(graph._edges)
-    graph.del_edge(2, 3)
+    g = Graph(GraphType.UNDIRECTED)
+    g.add_edge(2, 5)
+    g.add_edge(5, 2)  
+    print(g._edges)
+    code = [11, 2, 4, 1, 0]
+    tree = from_prufer(code)
+    new_code = tree.to_prufer()
+
+    print(new_code == code)
