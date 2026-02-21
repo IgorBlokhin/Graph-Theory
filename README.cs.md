@@ -6,7 +6,7 @@ Strom na n vrcholech připouští grációzní ohodnocení, pokud lze jeho vrc
 
 Základní myšlenkou je propojení grációzních ohodnocení s Prüferovými kódy prostřednictvím Sheppardových kódů. Každý Sheppardův kód určuje graf pomocí pevně dané konstrukce hran. Pokud je výsledný graf stromem, vzniklé ohodnocení je grációzní z definice konstrukce. Takto získané stromy jsou následně převedeny na Prüferovy kódy. Tím vzniká explicitní reprezentace grációzních ohodnocení jako prvků prostoru Prüferových kódů.
 
-Data v tomto repozitáři se skládají právě z těchto Prüferových kódů. Ohodnocení vrcholů je voleno z množiny {0, 1, ..., n−1} a každý řádek datového souboru odpovídá jednomu Prüferovu kódu délky n−2. Každý takový kód tedy reprezentuje konkrétní grációzní ohodnocení, nikoli pouze neoznačený strom.
+Data v tomto repozitáři se skládají právě z těchto Prüferových kódů. Ohodnocení vrcholů je voleno z množiny {0, 1, ..., n−1} a každý řádek datového souboru odpovídá jednomu Prüferovu kódu délky n−2. Každý takový kód tedy reprezentuje konkrétní grációzní ohodnocení.
 
 Část kódu pro práci s grafy vychází z modulu Diktyonphi, který byl původně vytvořen Jiřím Fišerem pro výukové účely, a byl dále upraven a rozšířen pro potřeby tohoto projektu. Původní verze: https://github.com/Jiri-Fiser/DiktyonPhi/blob/master/diktyonphi.py
 
