@@ -1,4 +1,15 @@
-# Graceful Prüfer Codes
+# Graph Theory
+
+This repository contains an ongoing and continuously evolving research project in graph theory. The project is intended as a computational and structural framework for exploring various graph-theoretic problems. It is designed to be extensible and will be expanded with additional directions over time.
+
+Current Focus
+At present, the main objectives of the project are:
+
+1. Generation of all graceful Prüfer codes.
+2. Enumeration of all unlabeled trees with n vertices.
+3. Computation of automorphism groups of these trees.
+
+## Graceful Prüfer Codes
 
 This repository contains source code and datasets related to the study of graceful labelings of trees represented through Prüfer codes.
 
